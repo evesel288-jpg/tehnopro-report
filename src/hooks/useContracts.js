@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
+const ALLOWED = ['title','client_name','manager_id','manager_name','amount','stage_id',
+                 'deadline','payment_status','progress','contract_number','contract_date','comment']
+
+const sanitize = (payload) =>
+  Object.fromEntries(Object.entries(payload).filter(([k]) => ALLOWED.includes(k)))
+
 export function useContracts() {
   const [contracts, setContracts] = useState([])
   const [loading,   setLoading]   = useState(true)
@@ -22,12 +28,11 @@ export function useContracts() {
   const createContract = async (payload) => {
     const { data, error } = await supabase
       .from('contracts')
-      .insert([payload])
+      .insert([sanitize(payload)])
       .select('*, stages(name, color)')
       .single()
     if (!error) {
       setContracts(prev => [data, ...prev])
-      // запись в историю
       await supabase.from('stage_history').insert([{
         contract_id: data.id,
         stage_id: data.stage_id,
@@ -40,7 +45,7 @@ export function useContracts() {
   const updateContract = async (id, payload) => {
     const { data, error } = await supabase
       .from('contracts')
-      .update(payload)
+      .update(sanitize(payload))
       .eq('id', id)
       .select('*, stages(name, color)')
       .single()
@@ -55,9 +60,12 @@ export function useContracts() {
   }
 
   const changeStage = async (contractId, stageId, userId, userEmail, comment) => {
-    const [updateRes] = await Promise.all([
-      supabase.from('contracts').update({ stage_id: stageId }).eq('id', contractId).select('*, stages(name, color)').single(),
-    ])
+    const updateRes = await supabase
+      .from('contracts')
+      .update({ stage_id: stageId })
+      .eq('id', contractId)
+      .select('*, stages(name, color)')
+      .single()
     await supabase.from('stage_history').insert([{
       contract_id: contractId,
       stage_id:    stageId,
