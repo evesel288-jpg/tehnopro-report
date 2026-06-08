@@ -4,8 +4,21 @@ import { supabase } from '../lib/supabase'
 const ALLOWED = ['title','client_name','manager_id','manager_name','amount','stage_id',
                  'deadline','payment_status','progress','contract_number','contract_date','comment']
 
-const sanitize = (payload) =>
-  Object.fromEntries(Object.entries(payload).filter(([k]) => ALLOWED.includes(k)))
+const DATE_FIELDS = ['deadline','contract_date']
+
+const sanitize = (payload) => {
+  const result = {}
+  for (const key of ALLOWED) {
+    if (!(key in payload)) continue
+    let val = payload[key]
+    // пустые строки в датах -> null
+    if (DATE_FIELDS.includes(key) && val === '') val = null
+    // пустые строки в необязательных полях -> null
+    if (val === '') val = null
+    result[key] = val
+  }
+  return result
+}
 
 export function useContracts() {
   const [contracts, setContracts] = useState([])
