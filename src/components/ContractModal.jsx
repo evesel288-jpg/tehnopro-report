@@ -38,6 +38,9 @@ export default function ContractModal({ contract, onClose, onSave, onDelete, onS
   const [saving,   setSaving]   = useState(false)
   const [payments, setPayments] = useState([])
   const [history,  setHistory]  = useState([])
+  const [notes,    setNotes]    = useState([])
+  const [newNote,  setNewNote]  = useState('')
+  const [savingNote, setSavingNote] = useState(false)
   const [newPay,   setNewPay]   = useState({ amount:'', type:'advance', date: new Date().toISOString().slice(0,10), comment:'' })
   const [stageComment, setStageComment] = useState('')
   const [showStagePick, setShowStagePick] = useState(false)
@@ -49,6 +52,8 @@ export default function ContractModal({ contract, onClose, onSave, onDelete, onS
         .then(({ data }) => data && setPayments(data))
       supabase.from('stage_history').select('*').eq('contract_id', contract.id).order('changed_at', { ascending: false })
         .then(({ data }) => data && setHistory(data))
+      supabase.from('notes').select('*').eq('contract_id', contract.id).order('created_at', { ascending: false })
+        .then(({ data }) => data && setNotes(data))
     }
   }, [contract?.id, isNew])
 
@@ -84,7 +89,37 @@ export default function ContractModal({ contract, onClose, onSave, onDelete, onS
     }
   }
 
-  const pay = PAYMENT_STATUS[form.payment_status] || PAYMENT_STATUS.unpaid
+  const addNote = async () => {
+    if (!newNote.trim()) return
+    setSavingNote(true)
+    const { data, error } = await supabase.from('notes').insert([{
+      contract_id: contract.id,
+      user_id:     user?.id,
+      user_email:  user?.email,
+      text:        newNote.trim(),
+    }]).select().single()
+    if (!error) {
+      setNotes(p => [data, ...p])
+      setNewNote('')
+    }
+    setSavingNote(false)
+  }
+
+  const deleteNote = async (id) => {
+    if (user?.id) {
+      const note = notes.find(n => n.id === id)
+      if (note && note.user_id !== user.id) return // только свои
+    }
+    const { error } = await supabase.from('notes').delete().eq('id', id)
+    if (!error) setNotes(p => p.filter(n => n.id !== id))
+  }
+
+  const TABS = [
+    ['info', 'Детали'],
+    ['stage', 'Стадии'],
+    ['payments', 'Платежи'],
+    ...(!isNew ? [['notes', 'Заметки'], ['history', 'История']] : []),
+  ]
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -121,10 +156,10 @@ export default function ContractModal({ contract, onClose, onSave, onDelete, onS
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-0 px-6 pt-4">
-          {[['info','Детали'], ['stage','Стадии'], ['payments','Платежи'], ...(!isNew ? [['history','История']] : [])].map(([id, label]) => (
+        <div className="flex gap-0 px-6 pt-4 overflow-x-auto">
+          {TABS.map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
-              className="text-sm px-4 py-2 font-medium transition-all border-b-2"
+              className="text-sm px-4 py-2 font-medium transition-all border-b-2 whitespace-nowrap"
               style={{
                 color: tab === id ? '#E8A020' : 'rgba(226,234,244,0.45)',
                 borderColor: tab === id ? '#E8A020' : 'transparent',
@@ -137,15 +172,16 @@ export default function ContractModal({ contract, onClose, onSave, onDelete, onS
 
           {tab === 'info' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input label="Название контракта" value={form.title} onChange={e => set('title', e.target.value)} className="sm:col-span-2" />
-              <Input label="Заказчик"         value={form.client_name}    onChange={e => set('client_name', e.target.value)} />
-              <Input label="Менеджер"         value={form.manager_name}   onChange={e => set('manager_name', e.target.value)} />
-              <Input label="Сумма (руб)"      value={form.amount}          onChange={e => set('amount', e.target.value)} type="number" />
-              <Input label="Дедлайн"          value={form.deadline || ''} onChange={e => set('deadline', e.target.value)} type="date" />
-              <Input label="Номер договора"   value={form.contract_number || ''} onChange={e => set('contract_number', e.target.value)} />
-              <Input label="Дата договора"    value={form.contract_date || ''} onChange={e => set('contract_date', e.target.value)} type="date" />
+              <div className="sm:col-span-2">
+                <Input label="Название контракта" value={form.title} onChange={e => set('title', e.target.value)} />
+              </div>
+              <Input label="Заказчик"       value={form.client_name}      onChange={e => set('client_name', e.target.value)} />
+              <Input label="Менеджер"       value={form.manager_name}     onChange={e => set('manager_name', e.target.value)} />
+              <Input label="Сумма (руб)"    value={form.amount}           onChange={e => set('amount', e.target.value)} type="number" />
+              <Input label="Дедлайн"        value={form.deadline || ''}   onChange={e => set('deadline', e.target.value)} type="date" />
+              <Input label="Номер договора" value={form.contract_number || ''} onChange={e => set('contract_number', e.target.value)} />
+              <Input label="Дата договора"  value={form.contract_date || ''} onChange={e => set('contract_date', e.target.value)} type="date" />
 
-              {/* Progress */}
               <label className="flex flex-col gap-1 sm:col-span-2">
                 <span className="text-xs font-mono uppercase tracking-wider" style={{ color: 'rgba(226,234,244,0.45)' }}>
                   Прогресс — {form.progress}%
@@ -155,7 +191,6 @@ export default function ContractModal({ contract, onClose, onSave, onDelete, onS
                   className="w-full accent-amber-400" />
               </label>
 
-              {/* Payment status */}
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-mono uppercase tracking-wider" style={{ color: 'rgba(226,234,244,0.45)' }}>Статус оплаты</span>
                 <select value={form.payment_status} onChange={e => set('payment_status', e.target.value)}
@@ -168,10 +203,9 @@ export default function ContractModal({ contract, onClose, onSave, onDelete, onS
                 </select>
               </label>
 
-              <div /> {/* spacer */}
-
-              <Textarea label="Комментарий" value={form.comment || ''} onChange={e => set('comment', e.target.value)}
-                style={{ gridColumn: 'span 2', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#E2EAF4' }} />
+              <div className="sm:col-span-2">
+                <Textarea label="Комментарий" value={form.comment || ''} onChange={e => set('comment', e.target.value)} />
+              </div>
             </div>
           )}
 
@@ -184,8 +218,6 @@ export default function ContractModal({ contract, onClose, onSave, onDelete, onS
                 currentStageId={form.stage_id}
                 onChangeStage={isNew ? (id) => set('stage_id', id) : handleStageClick}
               />
-
-              {/* Stage change confirm dialog */}
               {showStagePick && (
                 <div className="mt-4 rounded-xl p-4" style={{ background: 'rgba(232,160,32,0.08)', border: '1px solid rgba(232,160,32,0.25)' }}>
                   <p className="text-sm mb-3" style={{ color: '#E8A020' }}>Комментарий к смене стадии (необязательно)</p>
@@ -208,7 +240,6 @@ export default function ContractModal({ contract, onClose, onSave, onDelete, onS
 
           {tab === 'payments' && (
             <div>
-              {/* Add payment */}
               <div className="rounded-xl p-4 mb-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                 <p className="text-xs font-mono uppercase tracking-wider mb-3" style={{ color: 'rgba(226,234,244,0.4)' }}>Добавить платёж</p>
                 <div className="grid grid-cols-2 gap-3 mb-3">
@@ -228,12 +259,10 @@ export default function ContractModal({ contract, onClose, onSave, onDelete, onS
                 </div>
                 {!isNew && (
                   <button onClick={addPayment}
-                    className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                    className="px-4 py-2 rounded-lg text-sm font-medium"
                     style={{ background: '#E8A020', color: '#0F1F2E' }}>Добавить</button>
                 )}
               </div>
-
-              {/* Payment list */}
               <div className="flex flex-col gap-2">
                 {payments.length === 0 && (
                   <p className="text-sm text-center py-6" style={{ color: 'rgba(226,234,244,0.3)' }}>Платежей пока нет</p>
@@ -255,12 +284,85 @@ export default function ContractModal({ contract, onClose, onSave, onDelete, onS
             </div>
           )}
 
+          {tab === 'notes' && (
+            <div>
+              {/* Добавить заметку */}
+              <div className="rounded-xl p-4 mb-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <p className="text-xs font-mono uppercase tracking-wider mb-3" style={{ color: 'rgba(226,234,244,0.4)' }}>
+                  Новая заметка
+                </p>
+                <textarea
+                  value={newNote}
+                  onChange={e => setNewNote(e.target.value)}
+                  rows={3}
+                  placeholder="Найден поставщик ООО Ромашка, подписан договор на ПИР..."
+                  className="w-full rounded-lg px-3 py-2 text-sm outline-none resize-none mb-3"
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#E2EAF4' }}
+                  onFocus={e => e.target.style.borderColor = '#E8A020'}
+                  onBlur={e  => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                  onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) addNote() }}
+                />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs" style={{ color: 'rgba(226,234,244,0.25)' }}>Ctrl+Enter для быстрой отправки</span>
+                  <button onClick={addNote} disabled={savingNote || !newNote.trim()}
+                    className="px-4 py-2 rounded-lg text-sm font-medium transition-all"
+                    style={{ background: savingNote || !newNote.trim() ? 'rgba(232,160,32,0.3)' : '#E8A020', color: '#0F1F2E' }}>
+                    {savingNote ? 'Сохранение...' : 'Добавить'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Список заметок */}
+              <div className="flex flex-col gap-3">
+                {notes.length === 0 && (
+                  <p className="text-sm text-center py-6" style={{ color: 'rgba(226,234,244,0.3)' }}>
+                    Заметок пока нет. Добавьте первую.
+                  </p>
+                )}
+                {notes.map(n => {
+                  const isOwn = n.user_id === user?.id
+                  return (
+                    <div key={n.id} className="rounded-xl p-4"
+                      style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${isOwn ? 'rgba(232,160,32,0.15)' : 'rgba(255,255,255,0.06)'}` }}>
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
+                            style={{ background: isOwn ? 'rgba(232,160,32,0.2)' : 'rgba(66,165,245,0.2)',
+                                     color: isOwn ? '#E8A020' : '#42A5F5' }}>
+                            {(n.user_email || '?')[0].toUpperCase()}
+                          </div>
+                          <span className="text-xs" style={{ color: 'rgba(226,234,244,0.4)' }}>
+                            {n.user_email || 'Неизвестно'}
+                            {isOwn && <span className="ml-1" style={{ color: '#E8A020' }}>• вы</span>}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs font-mono" style={{ color: 'rgba(226,234,244,0.3)' }}>
+                            {new Date(n.created_at).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })}
+                          </span>
+                          {isOwn && (
+                            <button onClick={() => deleteNote(n.id)}
+                              className="text-xs px-2 py-0.5 rounded transition-colors"
+                              style={{ color: 'rgba(239,68,68,0.6)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: '#E2EAF4' }}>{n.text}</p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {tab === 'history' && (
             <div className="flex flex-col gap-2">
               {history.length === 0 && (
                 <p className="text-sm text-center py-6" style={{ color: 'rgba(226,234,244,0.3)' }}>История пуста</p>
               )}
-              {history.map((h, i) => {
+              {history.map((h) => {
                 const stageInfo = STAGES.find(s => s.id === h.stage_id)
                 const color = stageInfo?.color || '#9E9E9E'
                 const name  = stageInfo?.name  || `Стадия ${h.stage_id}`
